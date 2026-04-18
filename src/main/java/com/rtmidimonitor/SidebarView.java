@@ -14,6 +14,7 @@ public class SidebarView extends VBox {
     private final VBox content = new VBox(10);
     private VisualizationMode visualizationMode = VisualizationMode.BAR;
     private java.util.function.Consumer<VisualizationMode> onVisualizationModeChanged;
+    private Runnable onResetAll;
     private final AppSettings settings = AppSettings.getInstance();
 
     public SidebarView() {
@@ -48,6 +49,10 @@ public class SidebarView extends VBox {
         this.onVisualizationModeChanged = callback;
     }
 
+    public void setOnResetAll(Runnable callback) {
+        this.onResetAll = callback;
+    }
+
     private void setupContent() {
         Button vizToggle = new Button("Mode: Bars");
         vizToggle.setOnAction(e -> {
@@ -80,6 +85,11 @@ public class SidebarView extends VBox {
         noteFormatSelector.setValue(settings.getNoteFormat());
         noteFormatSelector.setOnAction(e -> settings.setNoteFormat(noteFormatSelector.getValue()));
 
+        Button resetAllBtn = new Button("Reset All");
+        resetAllBtn.setOnAction(e -> {
+            if (onResetAll != null) onResetAll.run();
+        });
+
         content.getChildren().addAll(
             new Label("Visualization"),
             vizToggle,
@@ -89,7 +99,7 @@ public class SidebarView extends VBox {
             new HBox(5, new Label("Num:"), numFormatSelector),
             new HBox(5, new Label("Note:"), noteFormatSelector),
             new Label("Global Actions"),
-            new Button("Reset All")
+            resetAllBtn
         );
         
         applyLabelStyles();

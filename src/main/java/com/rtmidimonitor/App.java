@@ -43,6 +43,10 @@ public class App extends Application {
         sidebar.setOnVisualizationModeChanged(mode -> {
             activeDevices.values().forEach(v -> v.setVisualizationMode(mode));
         });
+        sidebar.setOnResetAll(() -> {
+            activeDevices.values().forEach(MidiDeviceView::resetState);
+            logItems.clear();
+        });
         root.setLeft(sidebar);
 
         // Sidebar Content: Move Port selection there

@@ -76,6 +76,11 @@ public class MidiDeviceView extends VBox {
         visualizer.setMode(mode);
     }
 
+    public void resetState() {
+        state.reset();
+        visualizer.requestRedraw();
+    }
+
     public void close() {
         midiIn.closePort();
     }
