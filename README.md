@@ -21,8 +21,11 @@ To run the JavaFX application:
 mvn javafx:run
 ```
 
-## Features (Planned)
+## Features
 
-- Real-time MIDI message monitoring.
-- Portable UI using JavaFX.
-- Cross-platform support via `rtmidijava`.
+- **Real-time MIDI monitoring**: Detailed log with hex bytes and human-readable descriptions.
+- **Visualizer**: High-performance canvas showing active notes, CC values, and Pitch Bend.
+- **BPM Estimation**: Automatic calculation of BPM from incoming MIDI Clock messages.
+- **Filtering**: Easily ignore Sysex, Clock, or Active Sensing messages to declutter the log.
+- **Port Management**: Dynamic discovery and selection of MIDI input ports.
+- **Cross-platform**: Pure Java implementation using `rtmidijava` and JavaFX, no native binaries required.
