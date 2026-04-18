@@ -13,6 +13,8 @@ public class MidiDeviceView extends VBox {
     private final MidiState state = new MidiState();
     private final MidiVisualizer visualizer;
     private final Label bpmLabel = new Label("BPM: ---");
+    private final AppSettings settings = AppSettings.getInstance();
+    private final Label titleLabel = new Label();
 
     public MidiDeviceView(String portName, RtMidiIn midiIn) {
         this.portName = portName;
@@ -21,11 +23,8 @@ public class MidiDeviceView extends VBox {
         
         setPadding(new Insets(5));
         setSpacing(5);
-        setStyle("-fx-border-color: gray; -fx-border-width: 1; -fx-background-color: #2e2e2e;");
         
-        Label titleLabel = new Label(portName);
-        titleLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: white;");
-        bpmLabel.setStyle("-fx-text-fill: #aaa;");
+        titleLabel.setText(portName);
         
         visualizer.setHeight(300);
         visualizer.setWidth(250);
@@ -33,6 +32,27 @@ public class MidiDeviceView extends VBox {
         getChildren().addAll(titleLabel, bpmLabel, visualizer);
         
         setupMidi();
+        
+        updateStyle();
+        settings.themeProperty().addListener(e -> updateStyle());
+    }
+
+    private void updateStyle() {
+        Theme theme = settings.getTheme();
+        String bgHex = toHex(theme.background);
+        String labelHex = toHex(theme.label);
+        String dataHex = toHex(theme.data);
+        
+        setStyle("-fx-border-color: " + labelHex + "; -fx-border-width: 1; -fx-background-color: " + bgHex + ";");
+        titleLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: " + dataHex + ";");
+        bpmLabel.setStyle("-fx-text-fill: " + labelHex + ";");
+    }
+
+    private String toHex(javafx.scene.paint.Color color) {
+        return String.format("#%02X%02X%02X", 
+            (int)(color.getRed() * 255), 
+            (int)(color.getGreen() * 255), 
+            (int)(color.getBlue() * 255));
     }
 
     private void setupMidi() {

@@ -12,6 +12,7 @@ import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import javafx.scene.paint.Color;
 import org.rtmidijava.RtMidiIn;
 import org.rtmidijava.RtMidiFactory;
 
@@ -31,6 +32,7 @@ public class App extends Application {
     private final VBox portListContainer = new VBox(5);
     private final FlowPane deviceViewsContainer = new FlowPane(10, 10);
     private final Map<String, MidiDeviceView> activeDevices = new HashMap<>();
+    private final AppSettings settings = AppSettings.getInstance();
 
     @Override
     public void start(Stage stage) {
@@ -71,10 +73,7 @@ public class App extends Application {
             new Label("Filters:"), ignoreSysex, ignoreClock, ignoreSense,
             clearLogButton
         );
-        sidebarContent.getChildren().forEach(n -> {
-            if (n instanceof Label) ((Label)n).setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
-            if (n instanceof CheckBox) ((CheckBox)n).setStyle("-fx-text-fill: white;");
-        });
+        
         sidebar.addCustomContent(sidebarContent);
 
         // Center: Device Views and Log
@@ -83,15 +82,32 @@ public class App extends Application {
 
         ScrollPane deviceScrollPane = new ScrollPane(deviceViewsContainer);
         deviceScrollPane.setFitToWidth(true);
-        deviceScrollPane.setStyle("-fx-background: #1e1e1e; -fx-border-color: #1e1e1e;");
         
         ListView<String> logView = new ListView<>(logItems);
-        logView.setStyle("-fx-control-inner-background: #1e1e1e; -fx-text-fill: #00ff00;");
 
         splitPane.getItems().addAll(deviceScrollPane, logView);
         splitPane.setDividerPositions(0.7);
 
         root.setCenter(splitPane);
+
+        Runnable updateTheme = () -> {
+            Theme theme = settings.getTheme();
+            String bgHex = toHex(theme.background);
+            String dataHex = toHex(theme.data);
+            
+            deviceScrollPane.setStyle("-fx-background: " + bgHex + "; -fx-border-color: " + bgHex + ";");
+            deviceViewsContainer.setStyle("-fx-background-color: " + bgHex + ";");
+            logView.setStyle("-fx-control-inner-background: " + bgHex + "; -fx-text-fill: " + dataHex + ";");
+            
+            sidebarContent.getChildren().forEach(n -> {
+                String labelHex = toHex(theme.label);
+                if (n instanceof Label) n.setStyle("-fx-text-fill: " + labelHex + "; -fx-font-weight: bold;");
+                if (n instanceof CheckBox) n.setStyle("-fx-text-fill: " + labelHex + ";");
+            });
+        };
+        
+        settings.themeProperty().addListener(e -> updateTheme.run());
+        updateTheme.run();
 
         Scene scene = new Scene(root, 1400, 900);
         stage.setTitle("RtMidiMonitor");
@@ -104,6 +120,13 @@ public class App extends Application {
             activeDevices.values().forEach(MidiDeviceView::close);
             Platform.exit();
         });
+    }
+
+    private String toHex(Color color) {
+        return String.format("#%02X%02X%02X", 
+            (int)(color.getRed() * 255), 
+            (int)(color.getGreen() * 255), 
+            (int)(color.getBlue() * 255));
     }
 
     private void refreshPorts() {
@@ -157,23 +180,41 @@ public class App extends Application {
 
     private String formatMessage(MidiMessage msg, byte[] raw) {
         StringBuilder sb = new StringBuilder();
+        boolean useHex = settings.getNumberFormat() == AppSettings.NumberFormat.HEX;
+        
         for (byte b : raw) {
             sb.append(String.format("%02X ", b));
         }
         sb.append(" | ");
 
         if (msg instanceof MidiMessage.NoteOn n) {
-            sb.append(String.format("Note On: Ch %d, Note %d (%s), Vel %d", n.channel() + 1, n.note(), getNoteName(n.note()), n.velocity()));
+            sb.append(String.format("Note On: Ch %d, Note %s, Vel %s", 
+                n.channel() + 1, 
+                getNoteName(n.note()), 
+                useHex ? String.format("%02X", n.velocity()) : n.velocity()));
         } else if (msg instanceof MidiMessage.NoteOff n) {
-            sb.append(String.format("Note Off: Ch %d, Note %d (%s), Vel %d", n.channel() + 1, n.note(), getNoteName(n.note()), n.velocity()));
+            sb.append(String.format("Note Off: Ch %d, Note %s, Vel %s", 
+                n.channel() + 1, 
+                getNoteName(n.note()), 
+                useHex ? String.format("%02X", n.velocity()) : n.velocity()));
         } else if (msg instanceof MidiMessage.ControlChange c) {
-            sb.append(String.format("CC: Ch %d, Ctrl %d, Val %d", c.channel() + 1, c.controller(), c.value()));
+            sb.append(String.format("CC: Ch %d, Ctrl %s, Val %s", 
+                c.channel() + 1, 
+                useHex ? String.format("%02X", c.controller()) : c.controller(), 
+                useHex ? String.format("%02X", c.value()) : c.value()));
         } else if (msg instanceof MidiMessage.PitchBend p) {
-            sb.append(String.format("Pitch Bend: Ch %d, Val %d", p.channel() + 1, p.value()));
+            sb.append(String.format("Pitch Bend: Ch %d, Val %s", 
+                p.channel() + 1, 
+                useHex ? String.format("%04X", p.value()) : p.value()));
         } else if (msg instanceof MidiMessage.ChannelAftertouch a) {
-            sb.append(String.format("Channel Aftertouch: Ch %d, Pressure %d", a.channel() + 1, a.pressure()));
+            sb.append(String.format("Channel Aftertouch: Ch %d, Pressure %s", 
+                a.channel() + 1, 
+                useHex ? String.format("%02X", a.pressure()) : a.pressure()));
         } else if (msg instanceof MidiMessage.PolyAftertouch a) {
-            sb.append(String.format("Poly Aftertouch: Ch %d, Note %d (%s), Pressure %d", a.channel() + 1, a.note(), getNoteName(a.note()), a.pressure()));
+            sb.append(String.format("Poly Aftertouch: Ch %d, Note %s, Pressure %s", 
+                a.channel() + 1, 
+                getNoteName(a.note()), 
+                useHex ? String.format("%02X", a.pressure()) : a.pressure()));
         } else if (msg instanceof MidiMessage.Sysex s) {
             sb.append("Sysex: ").append(s.data().length).append(" bytes");
         } else {
@@ -184,6 +225,10 @@ public class App extends Application {
     }
 
     private String getNoteName(int note) {
+        if (settings.getNoteFormat() == AppSettings.NoteFormat.NUMBER) {
+            return settings.getNumberFormat() == AppSettings.NumberFormat.HEX ? 
+                String.format("%02X", note) : String.valueOf(note);
+        }
         String[] names = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
         return names[note % 12] + (note / 12 - 1);
     }

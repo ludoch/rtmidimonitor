@@ -8,11 +8,16 @@ import javafx.scene.paint.Color;
 public class MidiVisualizer extends Canvas {
     private final MidiState state;
     private VisualizationMode mode = VisualizationMode.BAR;
+    private final AppSettings settings = AppSettings.getInstance();
 
     public MidiVisualizer(MidiState state) {
         this.state = state;
         widthProperty().addListener(e -> draw());
         heightProperty().addListener(e -> draw());
+        
+        settings.themeProperty().addListener(e -> draw());
+        settings.numberFormatProperty().addListener(e -> draw());
+        settings.noteFormatProperty().addListener(e -> draw());
     }
 
     public void setMode(VisualizationMode mode) {
@@ -24,29 +29,30 @@ public class MidiVisualizer extends Canvas {
         GraphicsContext gc = getGraphicsContext2D();
         double w = getWidth();
         double h = getHeight();
+        Theme theme = settings.getTheme();
 
-        gc.setFill(Color.web("#1e1e1e"));
+        gc.setFill(theme.background);
         gc.fillRect(0, 0, w, h);
 
         double channelHeight = h / 16.0;
 
         for (int i = 0; i < 16; i++) {
             MidiState.Channel channel = state.getChannels()[i];
-            drawChannel(gc, channel, i * channelHeight, w, channelHeight);
+            drawChannel(gc, channel, i * channelHeight, w, channelHeight, theme);
         }
     }
 
-    private void drawChannel(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h) {
+    private void drawChannel(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h, Theme theme) {
         if (mode == VisualizationMode.BAR) {
-            drawChannelBars(gc, ch, y, w, h);
+            drawChannelBars(gc, ch, y, w, h, theme);
         } else {
-            drawChannelGraph(gc, ch, y, w, h);
+            drawChannelGraph(gc, ch, y, w, h, theme);
         }
     }
 
-    private void drawChannelBars(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h) {
+    private void drawChannelBars(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h, Theme theme) {
         // Grid lines for octaves
-        gc.setStroke(Color.web("#333333"));
+        gc.setStroke(theme.separator);
         double noteWidth = w / 128.0;
         for (int i = 0; i < 128; i += 12) {
             double x = i * noteWidth;
@@ -54,7 +60,7 @@ public class MidiVisualizer extends Canvas {
         }
 
         // Draw active notes
-        gc.setFill(Color.LIME.deriveColor(0, 1, 1, 0.8));
+        gc.setFill(theme.positive.deriveColor(0, 1, 1, 0.8));
         for (int i = 0; i < 128; i++) {
             MidiState.ChannelMessage msg = ch.notesOn[i];
             if (msg.current.time > 0) {
@@ -65,7 +71,7 @@ public class MidiVisualizer extends Canvas {
         }
 
         // Draw CCs
-        gc.setFill(Color.ORANGE.deriveColor(0, 1, 1, 0.4));
+        gc.setFill(theme.controller.deriveColor(0, 1, 1, 0.4));
         for (int i = 0; i < 128; i++) {
             MidiState.ChannelMessage msg = ch.controlChanges[i];
             if (msg.current.time > 0) {
@@ -83,11 +89,11 @@ public class MidiVisualizer extends Canvas {
             gc.fillRect(centerX, y, pbVal * (w / 2.0), h);
         }
 
-        gc.setFill(Color.WHITE);
+        gc.setFill(theme.data);
         gc.fillText("Ch " + (ch.number + 1), 5, y + 12);
     }
 
-    private void drawChannelGraph(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h) {
+    private void drawChannelGraph(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h, Theme theme) {
         MidiState.ChannelMessage latest = null;
         double latestTime = -1;
         
@@ -103,7 +109,7 @@ public class MidiVisualizer extends Canvas {
         }
 
         if (latest != null && !latest.history.isEmpty()) {
-            gc.setStroke(Color.ORANGE);
+            gc.setStroke(theme.controller);
             gc.beginPath();
             double timeScale = 10.0;
             double currentTime = latest.current.time;
@@ -125,11 +131,19 @@ public class MidiVisualizer extends Canvas {
             gc.stroke();
         }
 
-        gc.setFill(Color.WHITE);
+        gc.setFill(theme.data);
         gc.fillText("Ch " + (ch.number + 1) + " (Graph)", 5, y + 12);
     }
     
     public void requestRedraw() {
         Platform.runLater(this::draw);
+    }
+
+    private String getNoteName(int note) {
+        if (settings.getNoteFormat() == AppSettings.NoteFormat.NUMBER) {
+            return String.valueOf(note);
+        }
+        String[] names = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+        return names[note % 12] + (note / 12 - 1);
     }
 }
