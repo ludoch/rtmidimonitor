@@ -3,7 +3,7 @@ package com.rtmidimonitor;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.control.Label;
-import javafx.scene.control.TitledPane;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.VBox;
 import org.rtmidijava.RtMidiIn;
 
@@ -15,21 +15,27 @@ public class MidiDeviceView extends VBox {
     private final Label bpmLabel = new Label("BPM: ---");
     private final AppSettings settings = AppSettings.getInstance();
     private final Label titleLabel = new Label();
+    private boolean frozen = false;
 
     public MidiDeviceView(String portName, RtMidiIn midiIn) {
         this.portName = portName;
         this.midiIn = midiIn;
         this.visualizer = new MidiVisualizer(state);
         
-        setPadding(new Insets(5));
-        setSpacing(5);
+        setPadding(new Insets(10));
+        setSpacing(10);
         
         titleLabel.setText(portName);
+        titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
         
-        visualizer.setHeight(300);
-        visualizer.setWidth(250);
+        ScrollPane scrollPane = new ScrollPane(visualizer);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setStyle("-fx-background: transparent; -fx-background-color: transparent; -fx-border-color: transparent;");
         
-        getChildren().addAll(titleLabel, bpmLabel, visualizer);
+        VBox.setVgrow(scrollPane, javafx.scene.layout.Priority.ALWAYS);
+        visualizer.widthProperty().bind(scrollPane.widthProperty().subtract(20));
+        
+        getChildren().addAll(titleLabel, bpmLabel, scrollPane);
         
         setupMidi();
         
@@ -56,7 +62,10 @@ public class MidiDeviceView extends VBox {
     }
 
     private void setupMidi() {
+        if (midiIn == null) return;
+
         midiIn.setCallback((timeStamp, message) -> {
+            if (frozen) return;
             MidiMessage msg = MidiParser.parse(message);
             if (msg != null) {
                 state.handleMessage(msg, timeStamp);
@@ -69,11 +78,15 @@ public class MidiDeviceView extends VBox {
     }
 
     public void updateFilters(boolean sysex, boolean clock, boolean sense) {
-        midiIn.ignoreTypes(sysex, clock, sense);
+        if (midiIn != null) midiIn.ignoreTypes(sysex, clock, sense);
     }
 
     public void setVisualizationMode(VisualizationMode mode) {
         visualizer.setMode(mode);
+    }
+
+    public void setFrozen(boolean frozen) {
+        this.frozen = frozen;
     }
 
     public void resetState() {
@@ -81,8 +94,14 @@ public class MidiDeviceView extends VBox {
         visualizer.requestRedraw();
     }
 
+    public void handleMockMessage(MidiMessage msg, double timeStamp) {
+        if (frozen) return;
+        state.handleMessage(msg, timeStamp);
+        visualizer.requestRedraw();
+    }
+
     public void close() {
-        midiIn.closePort();
+        if (midiIn != null) midiIn.closePort();
     }
     
     public String getPortName() {

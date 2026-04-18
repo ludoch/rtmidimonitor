@@ -24,6 +24,9 @@ public class MidiParser {
         if (status >= 0xF0) {
             if (status == 0xF0) return new MidiMessage.Sysex(data);
             if (status == 0xF8) return new MidiMessage.SystemMessage(0xF8, data);
+            if (status == 0xFA) return new MidiMessage.SystemMessage(0xFA, data);
+            if (status == 0xFB) return new MidiMessage.SystemMessage(0xFB, data);
+            if (status == 0xFC) return new MidiMessage.SystemMessage(0xFC, data);
             return new MidiMessage.SystemMessage(status, data);
         }
 
