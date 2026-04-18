@@ -9,6 +9,8 @@ public class SidebarView extends VBox {
     private boolean expanded = true;
     private final Button toggleButton = new Button("<<");
     private final VBox content = new VBox(10);
+    private VisualizationMode visualizationMode = VisualizationMode.BAR;
+    private java.util.function.Consumer<VisualizationMode> onVisualizationModeChanged;
 
     public SidebarView() {
         setPadding(new Insets(10));
@@ -27,9 +29,21 @@ public class SidebarView extends VBox {
         content.getChildren().add(node);
     }
 
+    public void setOnVisualizationModeChanged(java.util.function.Consumer<VisualizationMode> callback) {
+        this.onVisualizationModeChanged = callback;
+    }
+
     private void setupContent() {
+        Button vizToggle = new Button("Mode: Bars");
+        vizToggle.setOnAction(e -> {
+            visualizationMode = (visualizationMode == VisualizationMode.BAR) ? VisualizationMode.GRAPH : VisualizationMode.BAR;
+            vizToggle.setText("Mode: " + (visualizationMode == VisualizationMode.BAR ? "Bars" : "Graphs"));
+            if (onVisualizationModeChanged != null) onVisualizationModeChanged.accept(visualizationMode);
+        });
+
         content.getChildren().addAll(
             new Label("Global Controls"),
+            vizToggle,
             new Button("Reset All"),
             new Button("Settings"),
             new Button("About")

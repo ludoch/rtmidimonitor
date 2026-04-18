@@ -1,22 +1,23 @@
 package com.rtmidimonitor;
 
 import javafx.application.Platform;
-import javafx.collections.MapChangeListener;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 
 public class MidiVisualizer extends Canvas {
     private final MidiState state;
+    private VisualizationMode mode = VisualizationMode.BAR;
 
     public MidiVisualizer(MidiState state) {
         this.state = state;
         widthProperty().addListener(e -> draw());
         heightProperty().addListener(e -> draw());
-        
-        // In a more complex version, we would listen to all channels
-        // For now, let's just trigger a redraw on any update
-        // (Simplified for this phase)
+    }
+
+    public void setMode(VisualizationMode mode) {
+        this.mode = mode;
+        draw();
     }
 
     public void draw() {
@@ -36,6 +37,14 @@ public class MidiVisualizer extends Canvas {
     }
 
     private void drawChannel(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h) {
+        if (mode == VisualizationMode.BAR) {
+            drawChannelBars(gc, ch, y, w, h);
+        } else {
+            drawChannelGraph(gc, ch, y, w, h);
+        }
+    }
+
+    private void drawChannelBars(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h) {
         // Grid lines for octaves
         gc.setStroke(Color.web("#333333"));
         double noteWidth = w / 128.0;
@@ -55,7 +64,7 @@ public class MidiVisualizer extends Canvas {
             }
         }
 
-        // Draw CCs (simplified: just latest active CC)
+        // Draw CCs
         gc.setFill(Color.ORANGE.deriveColor(0, 1, 1, 0.4));
         for (int i = 0; i < 128; i++) {
             MidiState.ChannelMessage msg = ch.controlChanges[i];
@@ -74,12 +83,52 @@ public class MidiVisualizer extends Canvas {
             gc.fillRect(centerX, y, pbVal * (w / 2.0), h);
         }
 
-        // Channel label
         gc.setFill(Color.WHITE);
         gc.fillText("Ch " + (ch.number + 1), 5, y + 12);
     }
+
+    private void drawChannelGraph(GraphicsContext gc, MidiState.Channel ch, double y, double w, double h) {
+        MidiState.ChannelMessage latest = null;
+        double latestTime = -1;
+        
+        if (ch.pitchBend.current.time > latestTime) {
+            latest = ch.pitchBend;
+            latestTime = ch.pitchBend.current.time;
+        }
+        for (int i = 0; i < 128; i++) {
+            if (ch.controlChanges[i].current.time > latestTime) {
+                latest = ch.controlChanges[i];
+                latestTime = ch.controlChanges[i].current.time;
+            }
+        }
+
+        if (latest != null && !latest.history.isEmpty()) {
+            gc.setStroke(Color.ORANGE);
+            gc.beginPath();
+            double timeScale = 10.0;
+            double currentTime = latest.current.time;
+            
+            double x = w;
+            double valY = y + h - (latest.current.value / 127.0) * h;
+            if (latest == ch.pitchBend) valY = y + h/2.0 - ((latest.current.value - 8192) / 8192.0) * (h/2.0);
+            
+            gc.moveTo(x, valY);
+            
+            for (MidiState.TimedValue tv : latest.history) {
+                double dx = (currentTime - tv.time) * (w / timeScale);
+                x = w - dx;
+                if (x < 0) break;
+                valY = y + h - (tv.value / 127.0) * h;
+                if (latest == ch.pitchBend) valY = y + h/2.0 - ((tv.value - 8192) / 8192.0) * (h/2.0);
+                gc.lineTo(x, valY);
+            }
+            gc.stroke();
+        }
+
+        gc.setFill(Color.WHITE);
+        gc.fillText("Ch " + (ch.number + 1) + " (Graph)", 5, y + 12);
+    }
     
-    // Manual redraw request for when state changes
     public void requestRedraw() {
         Platform.runLater(this::draw);
     }

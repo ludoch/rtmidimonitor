@@ -52,6 +52,10 @@ public class MidiDeviceView extends VBox {
         midiIn.ignoreTypes(sysex, clock, sense);
     }
 
+    public void setVisualizationMode(VisualizationMode mode) {
+        visualizer.setMode(mode);
+    }
+
     public void close() {
         midiIn.closePort();
     }

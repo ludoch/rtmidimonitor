@@ -38,6 +38,9 @@ public class App extends Application {
 
         // Left: Sidebar
         SidebarView sidebar = new SidebarView();
+        sidebar.setOnVisualizationModeChanged(mode -> {
+            activeDevices.values().forEach(v -> v.setVisualizationMode(mode));
+        });
         root.setLeft(sidebar);
 
         // Sidebar Content: Move Port selection there
