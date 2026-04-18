@@ -18,15 +18,17 @@ import org.rtmidijava.RtMidiFactory;
 import java.util.ArrayList;
 import java.util.List;
 
+import javafx.scene.layout.FlowPane;
+import javafx.scene.control.ScrollPane;
+import java.util.HashMap;
+import java.util.Map;
+
 public class App extends Application {
 
-    private RtMidiIn midiIn;
     private final ObservableList<String> logItems = FXCollections.observableArrayList();
-    private final ComboBox<String> portSelector = new ComboBox<>();
-    private final List<String> portNames = new ArrayList<>();
-    private final MidiState midiState = new MidiState();
-    private MidiVisualizer visualizer;
-    private final Label bpmLabel = new Label("BPM: ---");
+    private final VBox portListContainer = new VBox(5);
+    private final FlowPane deviceViewsContainer = new FlowPane(10, 10);
+    private final Map<String, MidiDeviceView> activeDevices = new HashMap<>();
 
     @Override
     public void start(Stage stage) {
@@ -38,124 +40,99 @@ public class App extends Application {
         Button refreshButton = new Button("Refresh Ports");
         refreshButton.setOnAction(e -> refreshPorts());
         
-        portSelector.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(portSelector, Priority.ALWAYS);
-        portSelector.setOnAction(e -> openSelectedPort());
-
-        topBar.getChildren().addAll(new Label("MIDI Port:"), portSelector, refreshButton);
-
-        // Toolbar: Filters
-        HBox toolbar = new HBox(10);
-        toolbar.setPadding(new Insets(5, 0, 5, 0));
-        Button clearButton = new Button("Clear Log");
-        clearButton.setOnAction(e -> {
-            logItems.clear();
-            midiState.reset();
-        });
-
+        Button clearLogButton = new Button("Clear Log");
+        clearLogButton.setOnAction(e -> logItems.clear());
+        
         CheckBox ignoreSysex = new CheckBox("Ignore Sysex");
         ignoreSysex.setSelected(true);
-
         CheckBox ignoreClock = new CheckBox("Ignore Clock");
         ignoreClock.setSelected(true);
-
         CheckBox ignoreSense = new CheckBox("Ignore Active Sensing");
         ignoreSense.setSelected(true);
-        
+
         ignoreSysex.setOnAction(e -> updateMidiFilters(ignoreSysex.isSelected(), ignoreClock.isSelected(), ignoreSense.isSelected()));
         ignoreClock.setOnAction(e -> updateMidiFilters(ignoreSysex.isSelected(), ignoreClock.isSelected(), ignoreSense.isSelected()));
         ignoreSense.setOnAction(e -> updateMidiFilters(ignoreSysex.isSelected(), ignoreClock.isSelected(), ignoreSense.isSelected()));
 
-        toolbar.getChildren().addAll(clearButton, ignoreSysex, ignoreClock, ignoreSense);
+        topBar.getChildren().addAll(new Label("Available MIDI Ports:"), refreshButton, clearLogButton, ignoreSysex, ignoreClock, ignoreSense);
 
-        // Middle: SplitPane
+        ScrollPane portScrollPane = new ScrollPane(portListContainer);
+        portScrollPane.setFitToWidth(true);
+        portScrollPane.setPrefHeight(150);
+
+        // Middle: SplitPane for Device Views and Log
         SplitPane splitPane = new SplitPane();
         splitPane.setOrientation(javafx.geometry.Orientation.VERTICAL);
         VBox.setVgrow(splitPane, Priority.ALWAYS);
 
-        ListView<String> logView = new ListView<>(logItems);
+        ScrollPane deviceScrollPane = new ScrollPane(deviceViewsContainer);
+        deviceScrollPane.setFitToWidth(true);
         
-        visualizer = new MidiVisualizer(midiState);
-        // Make visualizer responsive
-        Pane visualizerContainer = new Pane(visualizer);
-        visualizer.widthProperty().bind(visualizerContainer.widthProperty());
-        visualizer.heightProperty().bind(visualizerContainer.heightProperty());
+        ListView<String> logView = new ListView<>(logItems);
 
-        splitPane.getItems().addAll(visualizerContainer, logView);
-        splitPane.setDividerPositions(0.4);
+        splitPane.getItems().addAll(deviceScrollPane, logView);
+        splitPane.setDividerPositions(0.6);
 
-        // Bottom: Status
-        Label statusLabel = new Label("Initializing...");
-        HBox bottomBar = new HBox(20);
-        bottomBar.getChildren().addAll(statusLabel, bpmLabel);
+        root.getChildren().addAll(topBar, portScrollPane, splitPane);
 
-        root.getChildren().addAll(topBar, toolbar, splitPane, bottomBar);
-
-        Scene scene = new Scene(root, 1024, 768);
+        Scene scene = new Scene(root, 1200, 800);
         stage.setTitle("RtMidiMonitor");
         stage.setScene(scene);
         stage.show();
 
-        try {
-            midiIn = RtMidiFactory.createDefaultIn();
-            statusLabel.setText("API: " + midiIn.getCurrentApi());
-            refreshPorts();
-        } catch (Exception e) {
-            statusLabel.setText("Error: " + e.getMessage());
-        }
+        refreshPorts();
 
         stage.setOnCloseRequest(e -> {
-            if (midiIn != null) {
-                midiIn.closePort();
-            }
+            activeDevices.values().forEach(MidiDeviceView::close);
             Platform.exit();
         });
     }
 
     private void refreshPorts() {
-        if (midiIn == null) return;
-        
-        portNames.clear();
-        int count = midiIn.getPortCount();
-        for (int i = 0; i < count; i++) {
-            portNames.add(midiIn.getPortName(i));
-        }
-        portSelector.setItems(FXCollections.observableArrayList(portNames));
-        if (!portNames.isEmpty()) {
-            portSelector.getSelectionModel().select(0);
+        portListContainer.getChildren().clear();
+        try {
+            RtMidiIn probe = RtMidiFactory.createDefaultIn();
+            int count = probe.getPortCount();
+            for (int i = 0; i < count; i++) {
+                String name = probe.getPortName(i);
+                final int portIndex = i;
+                CheckBox cb = new CheckBox(name);
+                cb.setOnAction(e -> togglePort(name, portIndex, cb.isSelected()));
+                portListContainer.getChildren().add(cb);
+            }
+            // bpm estimation needs a fixed device or we aggregate? Original ShowMidi does it per device.
+        } catch (Exception e) {
+            logItems.add(0, "Error refreshing ports: " + e.getMessage());
         }
     }
 
-    private void openSelectedPort() {
-        int index = portSelector.getSelectionModel().getSelectedIndex();
-        if (index >= 0 && index < portNames.size()) {
-            if (midiIn.isPortOpen()) {
-                midiIn.closePort();
-            }
+    private void togglePort(String name, int index, boolean selected) {
+        if (selected) {
             try {
-                midiIn.openPort(index, "RtMidiMonitor");
-                // Apply default filters (assuming they match the checkbox defaults)
-                midiIn.ignoreTypes(true, true, true);
+                RtMidiIn midiIn = RtMidiFactory.createDefaultIn();
+                midiIn.openPort(index, "RtMidiMonitor-" + name);
+                MidiDeviceView view = new MidiDeviceView(name, midiIn);
+                activeDevices.put(name, view);
+                deviceViewsContainer.getChildren().add(view);
+                
+                // Also add a log callback for this device
                 midiIn.setCallback((timeStamp, message) -> {
                     MidiMessage msg = MidiParser.parse(message);
-                    if (msg != null) {
-                        midiState.handleMessage(msg, timeStamp);
-                        visualizer.requestRedraw();
-                        if (msg instanceof MidiMessage.SystemMessage s && s.type() == 0xF8) {
-                             Platform.runLater(() -> bpmLabel.setText(String.format("BPM: %.1f", midiState.getBpm())));
-                             return;
-                        }
-                    }
-                    String logLine = String.format("[%f] %s", timeStamp, formatMessage(msg, message));
+                    String logLine = String.format("[%s][%f] %s", name, timeStamp, formatMessage(msg, message));
                     Platform.runLater(() -> {
                         logItems.add(0, logLine);
-                        if (logItems.size() > 100) {
-                            logItems.remove(100, logItems.size());
-                        }
+                        if (logItems.size() > 200) logItems.remove(200, logItems.size());
                     });
                 });
+                
             } catch (Exception e) {
-                logItems.add(0, "Error opening port: " + e.getMessage());
+                logItems.add(0, "Error opening port " + name + ": " + e.getMessage());
+            }
+        } else {
+            MidiDeviceView view = activeDevices.remove(name);
+            if (view != null) {
+                view.close();
+                deviceViewsContainer.getChildren().remove(view);
             }
         }
     }
@@ -194,9 +171,7 @@ public class App extends Application {
     }
 
     private void updateMidiFilters(boolean sysex, boolean clock, boolean sense) {
-        if (midiIn != null) {
-            midiIn.ignoreTypes(sysex, clock, sense);
-        }
+        activeDevices.values().forEach(v -> v.updateFilters(sysex, clock, sense));
     }
 
     public static void main(String[] args) {
