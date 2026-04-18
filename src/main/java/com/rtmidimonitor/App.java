@@ -23,6 +23,8 @@ import javafx.scene.control.ScrollPane;
 import java.util.HashMap;
 import java.util.Map;
 
+import javafx.scene.layout.BorderPane;
+
 public class App extends Application {
 
     private final ObservableList<String> logItems = FXCollections.observableArrayList();
@@ -32,11 +34,14 @@ public class App extends Application {
 
     @Override
     public void start(Stage stage) {
-        VBox root = new VBox(10);
-        root.setPadding(new Insets(10));
+        BorderPane root = new BorderPane();
 
-        // Top: Port Selection
-        HBox topBar = new HBox(10);
+        // Left: Sidebar
+        SidebarView sidebar = new SidebarView();
+        root.setLeft(sidebar);
+
+        // Sidebar Content: Move Port selection there
+        VBox sidebarContent = new VBox(10);
         Button refreshButton = new Button("Refresh Ports");
         refreshButton.setOnAction(e -> refreshPorts());
         
@@ -54,28 +59,38 @@ public class App extends Application {
         ignoreClock.setOnAction(e -> updateMidiFilters(ignoreSysex.isSelected(), ignoreClock.isSelected(), ignoreSense.isSelected()));
         ignoreSense.setOnAction(e -> updateMidiFilters(ignoreSysex.isSelected(), ignoreClock.isSelected(), ignoreSense.isSelected()));
 
-        topBar.getChildren().addAll(new Label("Available MIDI Ports:"), refreshButton, clearLogButton, ignoreSysex, ignoreClock, ignoreSense);
-
         ScrollPane portScrollPane = new ScrollPane(portListContainer);
         portScrollPane.setFitToWidth(true);
-        portScrollPane.setPrefHeight(150);
+        portScrollPane.setPrefHeight(200);
 
-        // Middle: SplitPane for Device Views and Log
+        sidebarContent.getChildren().addAll(
+            new Label("Available Ports:"), refreshButton, portScrollPane,
+            new Label("Filters:"), ignoreSysex, ignoreClock, ignoreSense,
+            clearLogButton
+        );
+        sidebarContent.getChildren().forEach(n -> {
+            if (n instanceof Label) ((Label)n).setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
+            if (n instanceof CheckBox) ((CheckBox)n).setStyle("-fx-text-fill: white;");
+        });
+        sidebar.addCustomContent(sidebarContent);
+
+        // Center: Device Views and Log
         SplitPane splitPane = new SplitPane();
         splitPane.setOrientation(javafx.geometry.Orientation.VERTICAL);
-        VBox.setVgrow(splitPane, Priority.ALWAYS);
 
         ScrollPane deviceScrollPane = new ScrollPane(deviceViewsContainer);
         deviceScrollPane.setFitToWidth(true);
+        deviceScrollPane.setStyle("-fx-background: #1e1e1e; -fx-border-color: #1e1e1e;");
         
         ListView<String> logView = new ListView<>(logItems);
+        logView.setStyle("-fx-control-inner-background: #1e1e1e; -fx-text-fill: #00ff00;");
 
         splitPane.getItems().addAll(deviceScrollPane, logView);
-        splitPane.setDividerPositions(0.6);
+        splitPane.setDividerPositions(0.7);
 
-        root.getChildren().addAll(topBar, portScrollPane, splitPane);
+        root.setCenter(splitPane);
 
-        Scene scene = new Scene(root, 1200, 800);
+        Scene scene = new Scene(root, 1400, 900);
         stage.setTitle("RtMidiMonitor");
         stage.setScene(scene);
         stage.show();
