@@ -6,6 +6,7 @@ public class MidiParser {
     private static final int[] lastNrpnMsb = new int[16];
     private static final int[] lastNrpnLsb = new int[16];
     private static final int[] lastDataMsb = new int[16];
+    private static final int[] lastCcMsb = new int[16 * 32];
 
     static {
         for (int i = 0; i < 16; i++) {
@@ -15,6 +16,7 @@ public class MidiParser {
             lastNrpnLsb[i] = 127;
             lastDataMsb[i] = -1;
         }
+        for (int i = 0; i < 16 * 32; i++) lastCcMsb[i] = -1;
     }
 
     public static MidiMessage parse(byte[] data) {
@@ -52,20 +54,40 @@ public class MidiParser {
                     int controller = data[1] & 0x7F;
                     int value = data[2] & 0x7F;
 
-                    // RPN / NRPN state machine
+                    // 1. RPN / NRPN selection
                     if (controller == 101) lastRpnMsb[channel] = value;
-                    else if (controller == 100) lastRpnLsb[channel] = value;
+                    else if (controller == 100) {
+                        lastRpnLsb[channel] = value;
+                        if (value == 127 && lastRpnMsb[channel] == 127) {
+                            lastNrpnMsb[channel] = 127; lastNrpnLsb[channel] = 127;
+                        }
+                    }
                     else if (controller == 99) lastNrpnMsb[channel] = value;
                     else if (controller == 98) lastNrpnLsb[channel] = value;
-                    else if (controller == 6) { // Data Entry MSB
+                    
+                    // 2. Data Entry
+                    else if (controller == 6) {
                         lastDataMsb[channel] = value;
                     }
-                    else if (controller == 38) { // Data Entry LSB
-                        int fullValue = (lastDataMsb[channel] << 7) | value;
-                        if (lastRpnMsb[channel] != 127 || lastRpnLsb[channel] != 127) {
-                            return new MidiMessage.Rpn(channel, (lastRpnMsb[channel] << 7) | lastRpnLsb[channel], fullValue);
-                        } else if (lastNrpnMsb[channel] != 127 || lastNrpnLsb[channel] != 127) {
-                            return new MidiMessage.Nrpn(channel, (lastNrpnMsb[channel] << 7) | lastNrpnLsb[channel], fullValue);
+                    else if (controller == 38) {
+                        if (lastDataMsb[channel] != -1) {
+                            int fullVal = (lastDataMsb[channel] << 7) | value;
+                            if (lastRpnMsb[channel] != 127) {
+                                return new MidiMessage.Rpn(channel, (lastRpnMsb[channel] << 7) | lastRpnLsb[channel], fullVal);
+                            } else if (lastNrpnMsb[channel] != 127) {
+                                return new MidiMessage.Nrpn(channel, (lastNrpnMsb[channel] << 7) | lastNrpnLsb[channel], fullVal);
+                            }
+                        }
+                    }
+                    
+                    // 3. 14-bit CC support
+                    if (controller < 32) {
+                        lastCcMsb[channel * 32 + controller] = value;
+                    } else if (controller >= 32 && controller < 64) {
+                        int msbIdx = channel * 32 + (controller - 32);
+                        if (lastCcMsb[msbIdx] != -1) {
+                            int fullVal = (lastCcMsb[msbIdx] << 7) | value;
+                            return new MidiMessage.HrControlChange(channel, controller - 32, fullVal);
                         }
                     }
 
@@ -85,7 +107,6 @@ public class MidiParser {
                 }
                 break;
         }
-
         return new MidiMessage.Unknown(data);
     }
 }

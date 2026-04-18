@@ -6,6 +6,7 @@ public sealed interface MidiMessage {
     record NoteOn(int channel, int note, int velocity) implements MidiMessage {}
     record NoteOff(int channel, int note, int velocity) implements MidiMessage {}
     record ControlChange(int channel, int controller, int value) implements MidiMessage {}
+    record HrControlChange(int channel, int controller, int value) implements MidiMessage {}
     record PitchBend(int channel, int value) implements MidiMessage {}
     record ProgramChange(int channel, int program) implements MidiMessage {}
     record PolyAftertouch(int channel, int note, int pressure) implements MidiMessage {}

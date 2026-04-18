@@ -3,263 +3,207 @@ package com.rtmidimonitor;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
+import javafx.geometry.Orientation;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
-import javafx.scene.paint.Color;
 import org.rtmidijava.RtMidiIn;
 import org.rtmidijava.RtMidiFactory;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.prefs.Preferences;
 
 public class App extends Application {
 
     private final TextArea logArea = new TextArea();
-    private final VBox portListContainer = new VBox(5);
-    private final FlowPane deviceViewsContainer = new FlowPane(10, 10);
+    private final VBox devicesBox = new VBox(20);
     private final Map<String, MidiDeviceView> activeDevices = new HashMap<>();
     private final AppSettings settings = AppSettings.getInstance();
+    private final VBox portListContainer = new VBox(5);
 
     private final CheckBox ignoreSysex = new CheckBox("Ignore Sysex");
     private final CheckBox ignoreClock = new CheckBox("Ignore Clock");
-    private final CheckBox ignoreSense = new CheckBox("Ignore Active Sensing");
-
+    private final CheckBox compactMode = new CheckBox("Compact Mode");
+    
     private boolean simulating = false;
+    private Button simulateBtn;
+    private VisualizationMode currentMode = VisualizationMode.BAR;
 
     @Override
     public void start(Stage stage) {
+        System.out.println("[CORE] Final UI Alignment...");
+        loadSettings();
+
         BorderPane root = new BorderPane();
 
-        // Top: MenuBar
+        // 1. Menu Bar
         MenuBar menuBar = new MenuBar();
         Menu fileMenu = new Menu("File");
-        MenuItem exitItem = new MenuItem("Exit");
-        exitItem.setOnAction(e -> exitApp());
+        MenuItem exitItem = new MenuItem("Exit"); exitItem.setOnAction(e -> exitApp());
         fileMenu.getItems().add(exitItem);
-        menuBar.getMenus().add(fileMenu);
+        Menu helpMenu = new Menu("Help");
+        MenuItem guideItem = new MenuItem("User Guide"); guideItem.setOnAction(e -> HelpView.show(stage));
+        helpMenu.getItems().add(guideItem);
+        menuBar.getMenus().addAll(fileMenu, helpMenu);
         root.setTop(menuBar);
 
-        // Left: Sidebar (Restored Feature-Rich Sidebar)
-        SidebarView sidebar = new SidebarView();
-        sidebar.setOnVisualizationModeChanged(mode -> {
-            activeDevices.values().forEach(v -> v.setVisualizationMode(mode));
-        });
-        sidebar.setOnResetAll(() -> {
-            activeDevices.values().forEach(MidiDeviceView::resetState);
-            Platform.runLater(() -> {
-                logArea.clear();
-                appendToLog("State reset.");
-            });
-        });
-        sidebar.setOnSimulate(this::toggleSimulation);
-        sidebar.setOnFreezeChanged(frozen -> {
-            activeDevices.values().forEach(v -> v.setFrozen(frozen));
+        // 2. Sidebar
+        VBox sidebar = new VBox(12);
+        sidebar.setPadding(new Insets(15));
+        sidebar.setMinWidth(220);
+        sidebar.setStyle("-fx-background-color: #2b2b2b; -fx-border-color: #444; -fx-border-width: 0 1 0 0;");
+
+        Button modeBtn = new Button("Mode: BARS"); modeBtn.setMaxWidth(Double.MAX_VALUE);
+        modeBtn.setOnAction(e -> {
+            currentMode = (currentMode == VisualizationMode.BAR) ? VisualizationMode.GRAPH : VisualizationMode.BAR;
+            modeBtn.setText("Mode: " + currentMode.name());
+            activeDevices.values().forEach(v -> v.setVisualizationMode(currentMode));
         });
 
-        // Sidebar custom content (Port selection and Filters)
-        VBox customSidebarContent = new VBox(10);
-        Button refreshButton = new Button("Refresh Ports");
-        refreshButton.setMaxWidth(Double.MAX_VALUE);
-        refreshButton.setOnAction(e -> refreshPorts());
+        compactMode.setStyle("-fx-text-fill: white;");
+        compactMode.setSelected(settings.isCompactMode());
+        compactMode.setOnAction(e -> settings.setCompactMode(compactMode.isSelected()));
 
-        ignoreSysex.setSelected(true);
-        ignoreClock.setSelected(true);
-        ignoreSense.setSelected(true);
+        Button refreshBtn = new Button("Refresh Ports"); refreshBtn.setMaxWidth(Double.MAX_VALUE);
+        refreshBtn.setOnAction(e -> refreshPorts());
+
+        ignoreSysex.setSelected(true); ignoreClock.setSelected(true);
+        ignoreSysex.setStyle("-fx-text-fill: white;"); ignoreClock.setStyle("-fx-text-fill: white;");
         ignoreSysex.setOnAction(e -> updateMidiFilters());
         ignoreClock.setOnAction(e -> updateMidiFilters());
-        ignoreSense.setOnAction(e -> updateMidiFilters());
 
-        Button clearLogBtn = new Button("Clear Log");
-        clearLogBtn.setMaxWidth(Double.MAX_VALUE);
-        clearLogBtn.setOnAction(e -> logArea.clear());
+        simulateBtn = new Button("Simulate MIDI"); simulateBtn.setMaxWidth(Double.MAX_VALUE);
+        simulateBtn.setOnAction(e -> toggleSimulation());
 
-        ScrollPane portScroll = new ScrollPane(portListContainer);
-        portScroll.setPrefHeight(150);
-        portScroll.setFitToWidth(true);
+        Button clearBtn = new Button("Clear Log"); clearBtn.setMaxWidth(Double.MAX_VALUE);
+        clearBtn.setOnAction(e -> logArea.clear());
 
-        customSidebarContent.getChildren().addAll(
-            new Label("Available Ports:"), refreshButton, portScroll,
-            new Label("Filters:"), ignoreSysex, ignoreClock, ignoreSense,
-            clearLogBtn
+        sidebar.getChildren().addAll(
+            new Label("VISUALS") {{ setStyle("-fx-text-fill: #888;"); }},
+            modeBtn, compactMode, new Separator(),
+            new Label("PORTS") {{ setStyle("-fx-text-fill: #888;"); }},
+            refreshBtn, portListContainer, new Separator(),
+            new Label("FILTERS") {{ setStyle("-fx-text-fill: #888;"); }},
+            ignoreSysex, ignoreClock, new Separator(),
+            simulateBtn, clearBtn
         );
-        sidebar.addCustomContent(customSidebarContent);
         root.setLeft(sidebar);
 
-        // Center: Main area
-        SplitPane splitPane = new SplitPane();
-        splitPane.setOrientation(javafx.geometry.Orientation.VERTICAL);
-
-        ScrollPane deviceScrollPane = new ScrollPane(deviceViewsContainer);
-        deviceScrollPane.setFitToWidth(true);
-        deviceScrollPane.setFitToHeight(true);
+        // 3. Center Content (The critical scrolling area)
+        devicesBox.setStyle("-fx-background-color: #111;");
+        devicesBox.setPadding(new Insets(10));
+        
+        ScrollPane deviceScroll = new ScrollPane(devicesBox);
+        deviceScroll.setFitToWidth(true);
+        deviceScroll.setFitToHeight(false); 
+        deviceScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS); // Force for testing
+        deviceScroll.setStyle("-fx-background: #111; -fx-background-color: #111; -fx-border-color: transparent;");
 
         logArea.setEditable(false);
-        logArea.setStyle("-fx-font-family: 'Monospaced';");
+        logArea.setStyle("-fx-control-inner-background: #000; -fx-text-fill: #0f0; -fx-font-family: 'Monospaced';");
         
-        splitPane.getItems().addAll(deviceScrollPane, logArea);
-        splitPane.setDividerPositions(0.6);
-        root.setCenter(splitPane);
+        SplitPane mainSplit = new SplitPane(deviceScroll, logArea);
+        mainSplit.setOrientation(Orientation.VERTICAL);
+        mainSplit.setDividerPositions(0.7);
 
-        // Theme sync
-        Runnable updateTheme = () -> {
-            Theme theme = settings.getTheme();
-            String bgHex = toHex(theme.background);
-            String dataHex = toHex(theme.data);
-            String labelHex = toHex(theme.label);
-            
-            deviceScrollPane.setStyle("-fx-background: " + bgHex + "; -fx-background-color: " + bgHex + ";");
-            deviceViewsContainer.setStyle("-fx-background-color: " + bgHex + ";");
-            logArea.setStyle("-fx-control-inner-background: " + bgHex + "; -fx-text-fill: " + dataHex + ";");
-            
-            customSidebarContent.getChildren().forEach(n -> {
-                if (n instanceof Label) n.setStyle("-fx-text-fill: " + labelHex + "; -fx-font-weight: bold;");
-                if (n instanceof CheckBox) n.setStyle("-fx-text-fill: " + labelHex + ";");
-            });
-        };
-        settings.themeProperty().addListener(e -> updateTheme.run());
-        updateTheme.run();
+        root.setCenter(mainSplit);
 
         Scene scene = new Scene(root, 1400, 900);
-        stage.setTitle("RtMidiMonitor");
+        stage.setTitle("RtMidiMonitor Pro");
         stage.setScene(scene);
+        stage.setResizable(true); 
         stage.show();
 
-        appendToLog("RtMidiMonitor Started. Use the sidebar to simulate or select ports.");
         refreshPorts();
-
         stage.setOnCloseRequest(e -> exitApp());
     }
 
     private void exitApp() {
+        saveSettings();
         simulating = false;
         activeDevices.values().forEach(MidiDeviceView::close);
         Platform.exit();
         System.exit(0);
     }
 
-    private void appendToLog(String msg) {
-        Platform.runLater(() -> {
-            logArea.appendText(msg + "\n");
-        });
-    }
-
-    private String toHex(Color color) {
-        return String.format("#%02X%02X%02X", 
-            (int)(color.getRed() * 255), (int)(color.getGreen() * 255), (int)(color.getBlue() * 255));
-    }
-
     private void refreshPorts() {
         portListContainer.getChildren().clear();
-        java.io.File alsaSeq = new java.io.File("/dev/snd/seq");
-        if (System.getProperty("os.name").toLowerCase().contains("linux") && alsaSeq.exists() && !alsaSeq.canRead()) {
-            appendToLog("ALSA Permission Denied. Simulation mode only.");
-            return;
-        }
-
-        RtMidiIn probe = null;
-        try {
-            probe = RtMidiFactory.createDefaultIn();
-            int count = probe.getPortCount();
-            for (int i = 0; i < count; i++) {
-                String name = probe.getPortName(i);
-                final int idx = i;
-                CheckBox cb = new CheckBox(name);
-                cb.setOnAction(e -> togglePort(name, idx, cb.isSelected()));
-                portListContainer.getChildren().add(cb);
-            }
-        } catch (Exception e) {
-            appendToLog("MIDI initialization failed: " + e.getMessage());
-        } finally {
-            if (probe != null) probe.closePort();
-        }
+        new Thread(() -> {
+            RtMidiIn probe = null;
+            try {
+                probe = RtMidiFactory.createDefaultIn();
+                for (int i = 0; i < probe.getPortCount(); i++) {
+                    String name = probe.getPortName(i);
+                    int idx = i;
+                    Platform.runLater(() -> {
+                        CheckBox cb = new CheckBox(name); cb.setStyle("-fx-text-fill: #0f0;");
+                        cb.setOnAction(e -> togglePort(name, idx, cb.isSelected()));
+                        portListContainer.getChildren().add(cb);
+                    });
+                }
+            } catch (Exception e) {}
+            finally { if (probe != null) probe.closePort(); }
+        }).start();
     }
 
     private void togglePort(String name, int index, boolean selected) {
         if (selected) {
             try {
-                RtMidiIn midiIn = null;
-                if (index != -1) {
-                    midiIn = RtMidiFactory.createDefaultIn();
-                    midiIn.openPort(index, "RtMidiMonitor-" + name);
-                    midiIn.ignoreTypes(ignoreSysex.isSelected(), ignoreClock.isSelected(), ignoreSense.isSelected());
-                    final String finalName = name;
-                    midiIn.setCallback((ts, bytes) -> {
+                RtMidiIn in = (index == -1) ? null : RtMidiFactory.createDefaultIn();
+                if (in != null) {
+                    in.openPort(index, "Monitor-" + name);
+                    in.ignoreTypes(ignoreSysex.isSelected(), ignoreClock.isSelected(), true);
+                    in.setCallback((ts, bytes) -> {
                         MidiMessage msg = MidiParser.parse(bytes);
-                        if (msg != null) {
-                            appendToLog("[" + finalName + "] " + formatMessage(msg, bytes));
-                        }
+                        if (msg != null) Platform.runLater(() -> logArea.appendText("[" + name + "] " + msg.getClass().getSimpleName() + "\n"));
                     });
                 }
-                MidiDeviceView view = new MidiDeviceView(name, midiIn);
+                MidiDeviceView view = new MidiDeviceView(name, in);
+                view.setVisualizationMode(currentMode);
                 activeDevices.put(name, view);
-                deviceViewsContainer.getChildren().add(view);
-            } catch (Exception e) {
-                appendToLog("Error: " + e.getMessage());
-            }
+                devicesBox.getChildren().add(view);
+            } catch (Exception e) {}
         } else {
             MidiDeviceView view = activeDevices.remove(name);
-            if (view != null) {
-                view.close();
-                deviceViewsContainer.getChildren().remove(view);
-            }
+            if (view != null) { view.close(); devicesBox.getChildren().remove(view); }
         }
-    }
-
-    private String formatMessage(MidiMessage msg, byte[] raw) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : raw) sb.append(String.format("%02X ", b));
-        sb.append("| ");
-        if (msg instanceof MidiMessage.NoteOn n) sb.append("Note ON ").append(getNoteName(n.note())).append(" Vel ").append(n.velocity());
-        else if (msg instanceof MidiMessage.NoteOff n) sb.append("Note OFF ").append(getNoteName(n.note()));
-        else sb.append(msg.getClass().getSimpleName());
-        return sb.toString();
-    }
-
-    private String getNoteName(int note) {
-        String[] names = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-        return names[note % 12] + (note / 12 - 1);
-    }
-
-    private void updateMidiFilters() {
-        activeDevices.values().forEach(v -> v.updateFilters(ignoreSysex.isSelected(), ignoreClock.isSelected(), ignoreSense.isSelected()));
-        appendToLog("Filters updated.");
     }
 
     private void toggleSimulation() {
         simulating = !simulating;
+        simulateBtn.setText(simulating ? "Stop Simulation" : "Simulate MIDI");
         if (simulating) {
-            appendToLog("Simulation started.");
-            new Thread(() -> {
+            Thread t = new Thread(() -> {
                 while (simulating) {
-                    Platform.runLater(this::runSimStep);
+                    Platform.runLater(this::runSimBurst);
                     try { Thread.sleep(1000); } catch (Exception e) { break; }
                 }
-            }).start();
-        } else {
-            appendToLog("Simulation stopped.");
+            });
+            t.setDaemon(true); t.start();
         }
     }
 
-    private void runSimStep() {
-        if (activeDevices.isEmpty()) togglePort("Virtual Simulation", -1, true);
+    private void runSimBurst() {
+        if (activeDevices.isEmpty()) togglePort("Simulation-In", -1, true);
         java.util.Random r = new java.util.Random();
+        double ts = System.nanoTime() / 1_000_000_000.0;
         activeDevices.values().forEach(v -> {
-            double ts = System.nanoTime() / 1_000_000_000.0;
-            int ch = r.nextInt(16);
-            int note = 40 + r.nextInt(40);
-            
-            MidiMessage m = new MidiMessage.NoteOn(ch, note, 100);
-            v.handleMockMessage(m, ts);
-            appendToLog("[SIM] " + formatMessage(m, new byte[]{(byte)(0x90|ch), (byte)note, 100}));
-            
-            new Thread(() -> {
-                try { Thread.sleep(600); } catch (Exception e) {}
-                Platform.runLater(() -> v.handleMockMessage(new MidiMessage.NoteOff(ch, note, 0), System.nanoTime() / 1_000_000_000.0));
-            }).start();
+            for (int i = 0; i < 14; i++) {
+                int ch = i; int note = 40 + r.nextInt(40);
+                v.handleMockMessage(new MidiMessage.NoteOn(ch, note, 100), ts);
+                new Thread(() -> { try { Thread.sleep(400); } catch (Exception e) {} Platform.runLater(() -> v.handleMockMessage(new MidiMessage.NoteOff(ch, note, 0), System.nanoTime()/1_000_000_000.0)); }).start();
+            }
         });
     }
+
+    private void updateMidiFilters() {
+        activeDevices.values().forEach(v -> v.updateFilters(ignoreSysex.isSelected(), ignoreClock.isSelected(), true));
+    }
+
+    private void loadSettings() { try { Preferences p = Preferences.userNodeForPackage(App.class); settings.setCompactMode(p.getBoolean("compact", false)); } catch (Exception e) {} }
+    private void saveSettings() { try { Preferences p = Preferences.userNodeForPackage(App.class); p.putBoolean("compact", settings.isCompactMode()); } catch (Exception e) {} }
 
     public static void main(String[] args) { launch(); }
 }
